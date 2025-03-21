@@ -1,3 +1,4 @@
+// Sidebar.tsx
 import React from 'react';
 import { Home, Brain, MessageSquare, Activity, User, Settings, HelpCircle } from 'lucide-react';
 
@@ -12,8 +13,9 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, activeTab, setActiveTab }) =>
   const navItems = [
     { id: 'home', icon: Home, label: 'Home' },
     { id: 'diagnosis', icon: Brain, label: 'Scan' },
+    { id: 'survival', icon: Activity, label: 'Survival' }, // New nav item
     { id: 'chat', icon: MessageSquare, label: 'Chat' },
-    { id: 'activity', icon: Activity, label: 'Reports' },
+    { id: 'reports', icon: Activity, label: 'Reports' },
     { id: 'profile', icon: User, label: 'Profile' },
     { id: 'settings', icon: Settings, label: 'Settings' },
     { id: 'help', icon: HelpCircle, label: 'Help' },

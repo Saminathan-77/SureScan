@@ -1,9 +1,11 @@
-import React, { useState } from 'react';
+// App.tsx
+import { useState } from 'react';
 import { Menu, X } from 'lucide-react';
 import Sidebar from './components/Sidebar';
 import HomePage from './components/HomePage';
 import DiagnosisPage from './components/DiagnosisPage';
 import ChatbotPage from './components/ChatbotPage';
+import SurvivalTime from './components/SurvivalTime'; // Import the new page
 
 function App() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -19,8 +21,11 @@ function App() {
         return <HomePage />;
       case 'diagnosis':
         return <DiagnosisPage />;
+      case 'survival':
+        return <SurvivalTime />; // New page
       case 'chat':
         return <ChatbotPage />;
+      // You can add other cases here as needed.
       default:
         return <HomePage />;
     }
