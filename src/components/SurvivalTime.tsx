@@ -102,18 +102,14 @@ const SurvivalTime: React.FC = () => {
           Enter patient details to predict the survival time based on our AI model.
         </p>
         {prediction !== null && (
-            <div className="mt-6 flex flex-col items-center justify-center p-6 bg-zinc-900/50 backdrop-blur-sm rounded-2xl border border-zinc-800/50">
-                {prediction > 24 ? (
-                <CheckCircle size={48} className="text-green-500 mb-4" />
-                ) : (
-                <AlertCircle size={48} className="text-red-500 mb-4" />
-                )}
-                <h2 className="text-2xl font-bold mb-2">Predicted Survival Time</h2>
-                <p className="text-gray-300 text-lg">
-                {Math.floor(prediction)} months {Math.round((prediction % 1) * 30)} days
-                </p>
-            </div>
-            )}
+  <div className="mt-6 flex flex-col items-center justify-center p-6 bg-zinc-900/50 backdrop-blur-sm rounded-2xl border border-zinc-800/50">
+    <AlertCircle size={48} className="text-red-500 mb-4" /> {/* Red exclamatory icon */}
+    <h2 className="text-2xl font-bold mb-2">Predicted Survival Time</h2>
+    <p className="text-gray-300 text-lg">
+      {Math.floor(prediction)} months {Math.round((prediction % 1) * 30)} days
+    </p>
+  </div>
+)}
 
       </div>
       
