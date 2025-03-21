@@ -34,7 +34,28 @@ const SurvivalTime: React.FC = () => {
 
   // Dropdown options (adjust values as needed)
   const genderOptions = ['Male', 'Female'];
-  const tumorTypeOptions = ['Glioblastoma', 'Meningioma', 'Astrocytoma'];
+  const tumorTypeOptions = [
+    'Astrocytoma', 'Carcinoma', 'Ependymoma', 'Ganglioglioma', 'Germinoma', 'Glioblastoma',
+    'Granuloma', 'Medulloblastoma', 'Meningioma', 'Neurocytoma', 'Oligodendroglioma',
+    'Papilloma', 'Schwannoma', 'Tuberculoma'
+  ].sort(); // Ensure the list is in alphabetical order
+  
+  const tumorTypeMapping: Record<string, string> = {
+    'Glioblastoma': 'Glioblastoma',
+    'Meningioma': 'Meningioma',
+    'Astrocytoma': 'Astrocytoma',
+    'Carcinoma': 'Glioblastoma',
+    'Ependymoma': 'Astrocytoma',
+    'Ganglioglioma': 'Astrocytoma',
+    'Germinoma': 'Glioblastoma',
+    'Granuloma': 'Meningioma',
+    'Medulloblastoma': 'Astrocytoma',
+    'Neurocytoma': 'Astrocytoma',
+    'Oligodendroglioma': 'Astrocytoma',
+    'Papilloma': 'Meningioma',
+    'Schwannoma': 'Meningioma',
+    'Tuberculoma': 'Meningioma'
+  };
   const tumorGradeOptions = ['I', 'II', 'III', 'IV'];
   const tumorLocationOptions = ['Frontal lobe', 'Temporal lobe', 'Parietal lobe', 'Occipital lobe'];
   const treatmentOptions = ['Surgery', 'Chemotherapy', 'Radiation', 'Surgery + Radiation therapy', 'Chemotherapy + Radiation'];
@@ -54,10 +75,14 @@ const SurvivalTime: React.FC = () => {
     setLoading(true);
     setPrediction(null);
     setError(null);
-
+  
+    const transformedData = {
+      ...formData,
+      Tumor_Type: tumorTypeMapping[formData.Tumor_Type] || 'Glioblastoma', // Map value before sending
+    };
+  
     try {
-      // Adjust the URL to your actual FastAPI endpoint.
-      const response = await axios.post('http://localhost:8000/predict', formData);
+      const response = await axios.post('http://localhost:8000/predict', transformedData);
       setPrediction(response.data.predicted_survival_time_months);
     } catch (err) {
       console.error(err);
@@ -121,9 +146,10 @@ const SurvivalTime: React.FC = () => {
               className="w-full p-2 rounded-md bg-zinc-800 border border-zinc-700"
               required
             >
-              <option value="" disabled>Select Tumor Type</option>
-              {tumorTypeOptions.map((option) => (
-                <option key={option} value={option}>{option}</option>
+              {["", ...tumorTypeOptions].map((option, index) => (
+                <option key={index} value={option} disabled={option === ""}>
+                  {option === "" ? "Select Tumor Type" : option}
+                </option>
               ))}
             </select>
           </div>
