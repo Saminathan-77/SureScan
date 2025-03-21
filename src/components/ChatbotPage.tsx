@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Send, User, Bot, Paperclip, Mic, Info } from 'lucide-react';
+import axios from 'axios';
 
 interface Message {
   id: number;
@@ -18,6 +19,10 @@ const ChatbotPage: React.FC = () => {
     }
   ]);
   const [inputText, setInputText] = useState('');
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [isFileProcessed, setIsFileProcessed] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const scrollToBottom = () => {
@@ -28,7 +33,60 @@ const ChatbotPage: React.FC = () => {
     scrollToBottom();
   }, [messages]);
 
-  const handleSendMessage = () => {
+  const handleFileUpload = async (file: File) => {
+    setIsProcessing(true);
+    
+    const formData = new FormData();
+    formData.append('file', file);
+    
+    try {
+      // Replace with your actual API endpoint for processing PDFs
+      const response = await axios.post('http://127.0.0.1:8000/api/process-pdf', formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+      });
+      
+      setIsFileProcessed(true);
+      
+      // Add bot message confirming file was processed
+      const botMessage: Message = {
+        id: messages.length + 1,
+        text: `I've processed "${file.name}". You can now ask me questions about its content.`,
+        sender: 'bot',
+        timestamp: new Date()
+      };
+      
+      setMessages(prev => [...prev, botMessage]);
+    } catch (error) {
+      console.error('Error processing file:', error);
+      
+      const errorMessage: Message = {
+        id: messages.length + 1,
+        text: `Sorry, I couldn't process the file. Please try again.`,
+        sender: 'bot',
+        timestamp: new Date()
+      };
+      
+      setMessages(prev => [...prev, errorMessage]);
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleFileSelection = () => {
+    fileInputRef.current?.click();
+  };
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      const file = e.target.files[0];
+      setSelectedFile(file);
+      handleFileUpload(file);
+    }
+  };
+
+  const handleSendMessage = async () => {
     if (inputText.trim() === '') return;
 
     // Add user message
@@ -40,10 +98,28 @@ const ChatbotPage: React.FC = () => {
     };
     
     setMessages(prev => [...prev, userMessage]);
+    const currentQuestion = inputText;
     setInputText('');
+    setIsProcessing(true);
 
-    // Simulate bot response after a short delay
-    setTimeout(() => {
+    try {
+      // Replace with your actual API endpoint for answering questions
+      const response = await axios.post('http://127.0.0.1:8000/api/answer-question', {
+        question: currentQuestion,
+      });
+      
+      const botMessage: Message = {
+        id: messages.length + 2,
+        text: response.data.answer || "I'm not sure about that. Could you provide more details?",
+        sender: 'bot',
+        timestamp: new Date()
+      };
+      
+      setMessages(prev => [...prev, botMessage]);
+    } catch (error) {
+      console.error('Error getting answer:', error);
+      
+      // Fallback response if API fails
       const botResponses = [
         "Based on your symptoms, it could be a common migraine. I recommend rest in a dark, quiet room and staying hydrated.",
         "Brain tumors can present with various symptoms including headaches, seizures, and cognitive changes. It's important to consult with a neurologist for proper evaluation.",
@@ -64,7 +140,9 @@ const ChatbotPage: React.FC = () => {
       };
       
       setMessages(prev => [...prev, botMessage]);
-    }, 1000);
+    } finally {
+      setIsProcessing(false);
+    }
   };
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
@@ -135,9 +213,19 @@ const ChatbotPage: React.FC = () => {
           {/* Input Area */}
           <div className="p-4 border-t border-zinc-800">
             <div className="flex items-center bg-zinc-800 rounded-xl p-2">
-              <button className="p-2 text-gray-400 hover:text-white">
+              <button 
+                className="p-2 text-gray-400 hover:text-white"
+                onClick={handleFileSelection}
+              >
                 <Paperclip size={20} />
               </button>
+              <input
+                type="file"
+                ref={fileInputRef}
+                onChange={handleFileChange}
+                className="hidden"
+                accept=".pdf"
+              />
               <textarea
                 value={inputText}
                 onChange={(e) => setInputText(e.target.value)}
@@ -145,15 +233,16 @@ const ChatbotPage: React.FC = () => {
                 placeholder="Type your medical question..."
                 className="flex-1 bg-transparent border-none outline-none resize-none max-h-32 text-white placeholder-gray-500 px-2"
                 rows={1}
+                disabled={isProcessing}
               />
               <button className="p-2 text-gray-400 hover:text-white">
                 <Mic size={20} />
               </button>
               <button 
                 onClick={handleSendMessage}
-                disabled={inputText.trim() === ''}
+                disabled={inputText.trim() === '' || isProcessing}
                 className={`p-2 rounded-lg ${
-                  inputText.trim() === '' 
+                  inputText.trim() === '' || isProcessing
                     ? 'text-gray-500 cursor-not-allowed' 
                     : 'bg-gradient-to-r from-blue-500 to-purple-600 text-white'
                 }`}
@@ -176,13 +265,19 @@ const ChatbotPage: React.FC = () => {
               <p>Describe your symptoms in detail including duration and severity.</p>
             </div>
             <div>
-              <p className="font-medium text-gray-300 mb-1">Medical History</p>
-              <p>Mention relevant medical history or conditions for more accurate information.</p>
+              <p className="font-medium text-gray-300 mb-1">Upload Documents</p>
+              <p>Upload medical PDFs for the assistant to analyze and reference.</p>
             </div>
             <div>
               <p className="font-medium text-gray-300 mb-1">Emergency</p>
               <p>For medical emergencies, please call emergency services immediately.</p>
             </div>
+            {selectedFile && (
+              <div>
+                <p className="font-medium text-blue-300 mb-1">Document Loaded</p>
+                <p className="text-blue-100 text-xs truncate">{selectedFile.name}</p>
+              </div>
+            )}
             <div className="pt-4 border-t border-zinc-800">
               <p className="text-xs text-gray-500">
                 This AI assistant provides general information only and is not a substitute for professional medical advice, diagnosis, or treatment.
