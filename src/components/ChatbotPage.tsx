@@ -1,6 +1,8 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Send, User, Bot, Paperclip, Mic, Info } from 'lucide-react';
 import axios from 'axios';
+import ReactMarkdown from 'react-markdown';
+
 
 interface Message {
   id: number;
@@ -202,7 +204,7 @@ const ChatbotPage: React.FC = () => {
                         </div>
                       </div>
                     </div>
-                    <p className="whitespace-pre-wrap">{message.text}</p>
+                    <ReactMarkdown>{message.text}</ReactMarkdown>
                   </div>
                 </div>
               ))}
