@@ -25,3 +25,8 @@ venv
 .env
 __pycache__
 *.pyc
+DATASET_classification
+brain_tumor_model.pth_epoch4.pth
+brain_tumor_model.pth_epoch8.pth
+brain_tumor_model.pth_epoch12.pth
+brain_tumor_model.pth_epoch16.pth

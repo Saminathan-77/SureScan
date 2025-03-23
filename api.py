@@ -14,6 +14,12 @@ from dotenv import load_dotenv
 import io
 import asyncio
 from typing import Dict
+import torch
+import torch.nn as nn
+import torchvision.models as models
+import torchvision.transforms as transforms
+from PIL import Image
+import numpy as np
 
 # Load API key from environment
 load_dotenv()
@@ -96,6 +102,69 @@ class QuestionRequest(BaseModel):
     question: str
     session_id: str = "default"
 
+# --------------------- BRAIN TUMOR IMAGE CLASSIFICATION MODEL ---------------------
+
+# Define the brain tumor classification model
+class BrainTumorEfficientNet(nn.Module):
+    def __init__(self, num_classes=44):
+        super(BrainTumorEfficientNet, self).__init__()
+        
+        self.base_model = models.efficientnet_b3(weights=models.EfficientNet_B3_Weights.IMAGENET1K_V1)
+        self.base_model.classifier = nn.Identity() 
+        
+        self.classifier = nn.Sequential(
+            nn.BatchNorm1d(1536),
+            nn.Linear(1536, 256, bias=True),
+            nn.ReLU(),
+            nn.Dropout(0.45),
+            nn.Linear(256, num_classes),
+            nn.LogSoftmax(dim=1) 
+        )
+
+    def forward(self, x):
+        x = self.base_model(x)
+        x = self.classifier(x)
+        return x
+
+# Load the classification model
+def load_classification_model(model_path="brain_tumor_model.pth_epoch20.pth"):
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model = BrainTumorEfficientNet(num_classes=44)
+    model.load_state_dict(torch.load(model_path, map_location=device))
+    model.to(device)
+    model.eval()
+    return model
+
+# Define class names for the classification model
+# Replace these with your actual class names
+class_names = [
+    'Astrocitoma T1', 'Astrocitoma T1C+', 'Astrocitoma T2', 'Carcinoma T1', 'Carcinoma T1C+', 
+    'Carcinoma T2', 'Ependimoma T1', 'Ependimoma T1C+', 'Ependimoma T2', 'Ganglioglioma T1', 
+    'Ganglioglioma T1C+', 'Ganglioglioma T2', 'Germinoma T1', 'Germinoma T1C+', 'Germinoma T2', 
+    'Glioblastoma T1', 'Glioblastoma T1C+', 'Glioblastoma T2', 'Granuloma T1', 'Granuloma T1C+', 
+    'Granuloma T2', 'Meduloblastoma T1', 'Meduloblastoma T1C+', 'Meduloblastoma T2', 'Meningioma T1', 
+    'Meningioma T1C+', 'Meningioma T2', 'Neurocitoma T1', 'Neurocitoma T1C+', 'Neurocitoma T2', 
+    'Oligodendroglioma T1', 'Oligodendroglioma T1C+', 'Oligodendroglioma T2', 'Papiloma T1', 'Papiloma T1C+', 
+    'Papiloma T2', 'Schwannoma T1', 'Schwannoma T1C+', 'Schwannoma T2', 'Tuberculoma T1', 'Tuberculoma T1C+', 
+    'Tuberculoma T2', '_NORMAL T1', '_NORMAL T2'
+]
+
+# Initialize the classification model
+try:
+    classification_model = load_classification_model()
+    print("Brain tumor classification model loaded successfully")
+except Exception as e:
+    print(f"Error loading classification model: {str(e)}")
+    classification_model = None
+
+# Define the transformation for input images
+transform = transforms.Compose([
+    transforms.Resize((128, 128)),
+    transforms.ToTensor(),
+])
+
+# --------------------- API ENDPOINTS ---------------------
+
 @app.post("/api/process-pdf")
 async def process_pdf(file: UploadFile = File(...), session_id: str = Form("default")):
     try:
@@ -147,10 +216,10 @@ async def answer_question(request: QuestionRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error answering question: {str(e)}")
 
-# Load the saved objects
+# Load the saved objects for survival prediction
 encoders = joblib.load('encoders.pkl')       # Dictionary of LabelEncoders
-scaler = joblib.load('scaler.pkl')             # StandardScaler fitted on training features
-model = joblib.load('xgb_model.pkl')           # Trained XGBoost model
+scaler = joblib.load('scaler.pkl')           # StandardScaler fitted on training features
+model = joblib.load('xgb_model.pkl')         # Trained XGBoost model
 
 # Define the original categorical columns in the order used during training
 ordered_categorical = ['Gender', 'Tumor Type', 'Tumor Grade', 'Tumor Location', 'Treatment', 'Treatment Outcome', 'Recurrence Site']
@@ -194,6 +263,78 @@ def predict(input_data: InputData):
     # Convert the numpy float32 prediction to a native Python float.
     return {"predicted_survival_time_months": float(prediction[0])}
 
+# New endpoint for brain tumor image classification
+@app.post("/classification")
+async def classify_image(file: UploadFile = File(...)):
+    # Check if model is loaded
+    if classification_model is None:
+        raise HTTPException(status_code=503, detail="Classification model is not available")
+    
+    # Validate file
+    if not file.content_type.startswith("image/"):
+        raise HTTPException(status_code=400, detail="File provided is not an image")
+    
+    # Process the image
+    try:
+        contents = await file.read()
+        image = Image.open(io.BytesIO(contents)).convert("RGB")
+        
+        # Apply transformations
+        image_tensor = transform(image)
+        image_tensor = image_tensor.unsqueeze(0)  # Add batch dimension
+        
+        # Get the device
+        device = next(classification_model.parameters()).device
+        image_tensor = image_tensor.to(device)
+        
+        # Get prediction
+        with torch.no_grad():
+            outputs = classification_model(image_tensor)
+            probabilities = torch.exp(outputs)
+            
+            # Get top prediction
+            top_prob, top_class = torch.max(probabilities, 1)
+            top_class_id = top_class.item()
+            top_class_name = class_names[top_class_id]
+            top_prob_value = top_prob.item()
+            
+            # Get top 5 predictions
+            top_5_probs, top_5_indices = torch.topk(probabilities, 5, dim=1)
+            top_5_probs = top_5_probs.squeeze().tolist()
+            top_5_indices = top_5_indices.squeeze().tolist()
+            
+            # Convert to list if only one result
+            if not isinstance(top_5_probs, list):
+                top_5_probs = [top_5_probs]
+                top_5_indices = [top_5_indices]
+            
+            top_5_results = [
+                {"class_id": idx, "class_name": class_names[idx], "confidence": float(prob)}
+                for idx, prob in zip(top_5_indices, top_5_probs)
+            ]
+        
+        return {
+            "class_id": top_class_id,
+            "class_name": top_class_name,
+            "confidence": top_prob_value,
+            "top_predictions": top_5_results
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+
+@app.get("/health")
+def health_check():
+    models_status = {
+        "survival_prediction": "loaded" if model is not None else "not loaded",
+        "classification": "loaded" if classification_model is not None else "not loaded",
+        "gemini": "configured" if API_KEY is not None else "not configured"
+    }
+    
+    return {
+        "status": "ok", 
+        "models": models_status
+    }
 
 if __name__ == "__main__":
     import uvicorn
