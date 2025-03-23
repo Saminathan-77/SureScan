@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
   Upload,
   X,
@@ -8,6 +8,7 @@ import {
   Clock,
   Activity,
   Thermometer,
+  Target,
 } from "lucide-react";
 
 const DiagnosisPage = () => {
@@ -20,6 +21,13 @@ const DiagnosisPage = () => {
   const [error, setError] = useState(null);
   const [detailedResults, setDetailedResults] = useState(null);
   const [showDetailedReport, setShowDetailedReport] = useState(false);
+  const [tumorDetections, setTumorDetections] = useState([]);
+  const [originalImageDimensions, setOriginalImageDimensions] = useState(null);
+  const [imageScale, setImageScale] = useState(1);
+  const [showBoundingBoxes, setShowBoundingBoxes] = useState(true);
+  const imageContainerRef = useRef(null);
+  const originalImageRef = useRef(null);
+  const boundingBoxContainerRef = useRef(null);
 
   const handleDrag = (e) => {
     e.preventDefault();
@@ -56,6 +64,9 @@ const DiagnosisPage = () => {
     setError(null);
     setShowDetailedReport(false);
     setDetailedResults(null);
+    setTumorDetections([]);
+    setOriginalImageDimensions(null);
+    setShowBoundingBoxes(true);
 
     // Create preview
     const reader = new FileReader();
@@ -81,10 +92,12 @@ const DiagnosisPage = () => {
 
       const data = await response.json();
 
-      // Update the state with the classification results
-      setDiagnosisResult(data.class_name);
-      setDiagnosisConfidence(Math.round(data.confidence * 100));
+      // Update the state with the classification results based on new API response structure
+      setDiagnosisResult(data.classification.class_name);
+      setDiagnosisConfidence(Math.round(data.classification.confidence * 100));
       setDetailedResults(data);
+      setTumorDetections(data.tumor_detection.bounding_boxes);
+      setOriginalImageDimensions(data.image_dimensions);
     } catch (error) {
       console.error("Error classifying image:", error);
       setError("Failed to classify the image. Please try again.");
@@ -101,10 +114,16 @@ const DiagnosisPage = () => {
     setError(null);
     setShowDetailedReport(false);
     setDetailedResults(null);
+    setTumorDetections([]);
+    setOriginalImageDimensions(null);
   };
 
   const generateDetailedReport = () => {
     setShowDetailedReport(true);
+  };
+
+  const toggleBoundingBoxes = () => {
+    setShowBoundingBoxes(!showBoundingBoxes);
   };
 
   const getRiskLevelColor = (className) => {
@@ -143,6 +162,92 @@ const DiagnosisPage = () => {
     // Extract the tumor type by removing the MRI type (T1, T1C+, T2)
     const parts = className.split(" ");
     return parts[0];
+  };
+
+  // Calculate image scale factor when image or container changes
+  useEffect(() => {
+    if (imageContainerRef.current && previewUrl && originalImageDimensions) {
+      const updateScale = () => {
+        const containerWidth = imageContainerRef.current.clientWidth;
+        const containerHeight = imageContainerRef.current.clientHeight;
+        const { width, height } = originalImageDimensions;
+
+        // Calculate scale to fit image in container while maintaining aspect ratio
+        const widthScale = containerWidth / width;
+        const heightScale = containerHeight / height;
+        const scale = Math.min(widthScale, heightScale);
+
+        setImageScale(scale);
+      };
+
+      // Initial calculation
+      updateScale();
+
+      // Update on window resize
+      window.addEventListener("resize", updateScale);
+      return () => window.removeEventListener("resize", updateScale);
+    }
+  }, [previewUrl, originalImageDimensions]);
+
+  // Original image without bounding boxes
+  const OriginalImage = () => {
+    if (!previewUrl) return null;
+
+    return (
+      <div
+        ref={originalImageRef}
+        className="relative h-full w-full overflow-hidden"
+      >
+        <img
+          src={previewUrl}
+          alt="MRI Original"
+          className="w-full h-full object-contain bg-black"
+        />
+      </div>
+    );
+  };
+
+  // Image with bounding boxes overlay
+  const BoundingBoxesOverlay = () => {
+    if (!previewUrl || !tumorDetections || tumorDetections.length === 0)
+      return null;
+
+    return (
+      <div
+        ref={boundingBoxContainerRef}
+        className="relative h-full w-full overflow-hidden"
+      >
+        <img
+          src={previewUrl}
+          alt="MRI With Detections"
+          className="w-full h-full object-contain bg-black"
+        />
+
+        {showBoundingBoxes &&
+          tumorDetections.map((box, index) => {
+            const { x1, y1, x2, y2, confidence } = box.pixels;
+            const boxWidth = x2 - x1;
+            const boxHeight = y2 - y1;
+
+            return (
+              <div
+                key={index}
+                className="absolute border-2 border-red-500 pointer-events-none"
+                style={{
+                  left: `${x1 * imageScale}px`,
+                  top: `${y1 * imageScale}px`,
+                  width: `${boxWidth * imageScale}px`,
+                  height: `${boxHeight * imageScale}px`,
+                }}
+              >
+                <div className="absolute -top-6 left-0 bg-red-500 text-white px-2 py-1 text-xs rounded whitespace-nowrap">
+                  Tumor {index + 1} ({Math.round(confidence * 100)}%)
+                </div>
+              </div>
+            );
+          })}
+      </div>
+    );
   };
 
   return (
@@ -195,13 +300,9 @@ const DiagnosisPage = () => {
             </div>
           ) : (
             <div className="relative h-80 rounded-xl overflow-hidden">
-              {previewUrl && (
-                <img
-                  src={previewUrl}
-                  alt="MRI Preview"
-                  className="w-full h-full object-contain bg-black"
-                />
-              )}
+              <div ref={imageContainerRef} className="h-full w-full">
+                <OriginalImage />
+              </div>
               <button
                 onClick={resetUpload}
                 className="absolute top-2 right-2 p-2 bg-black/70 rounded-full hover:bg-black"
@@ -263,7 +364,7 @@ const DiagnosisPage = () => {
             </div>
           ) : (
             <div className="h-80 flex flex-col items-center justify-center border border-zinc-800 rounded-xl p-6 overflow-y-auto">
-              {diagnosisResult.includes("NORMAL") ? (
+              {diagnosisResult.includes("_NORMAL") ? (
                 <CheckCircle size={64} className="text-green-500 mb-6" />
               ) : (
                 <AlertCircle size={64} className="text-amber-500 mb-6" />
@@ -277,7 +378,7 @@ const DiagnosisPage = () => {
               <div className="w-full max-w-xs bg-zinc-800 rounded-full h-4 mb-4">
                 <div
                   className={`h-4 rounded-full ${
-                    diagnosisResult.includes("NORMAL")
+                    diagnosisResult.includes("_NORMAL")
                       ? "bg-green-500"
                       : "bg-amber-500"
                   }`}
@@ -289,6 +390,27 @@ const DiagnosisPage = () => {
                 Confidence:{" "}
                 <span className="font-semibold">{diagnosisConfidence}%</span>
               </p>
+
+              {/* Tumor detections summary */}
+              {tumorDetections.length > 0 && (
+                <div className="w-full max-w-xs mb-4">
+                  <h4 className="font-semibold text-center mb-2">
+                    Detected Tumors
+                  </h4>
+                  <div className="bg-zinc-800/70 p-3 rounded-lg text-center">
+                    <div className="flex items-center justify-center">
+                      <Target className="text-red-400 mr-2" size={16} />
+                      <p className="font-bold text-lg">
+                        {tumorDetections.length}
+                        {tumorDetections.length === 1
+                          ? " region"
+                          : " regions"}{" "}
+                        detected
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {/* Risk Level */}
               <div className="w-full max-w-xs mb-4">
@@ -329,12 +451,153 @@ const DiagnosisPage = () => {
         </div>
       </div>
 
-      {/* Detailed Report Section */}
+      {/* Detailed Report Section - Modified to always include Tumor Detection Visualization */}
       {showDetailedReport && diagnosisResult && detailedResults && (
         <div className="mt-12 bg-zinc-900/50 backdrop-blur-sm p-8 rounded-2xl border border-zinc-800/50 animate-fade-in">
           <h2 className="text-3xl font-bold mb-6 bg-gradient-to-r from-blue-400 to-purple-500 text-transparent bg-clip-text">
             Detailed Diagnosis Report
           </h2>
+
+          {/* Tumor Detection Visualization - Now part of the detailed report */}
+          {previewUrl && (
+            <div className="mb-8 bg-zinc-800/30 p-6 rounded-xl border border-zinc-700/50">
+              <div className="flex justify-between items-center mb-6">
+                <h3 className="text-xl font-semibold flex items-center">
+                  <Target size={20} className="mr-2 text-red-400" />
+                  MRI Scan Analysis
+                </h3>
+                {tumorDetections.length > 0 && (
+                  <button
+                    onClick={toggleBoundingBoxes}
+                    className="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg text-sm font-medium transition-colors"
+                  >
+                    {showBoundingBoxes ? "Hide Regions" : "Show Regions"}
+                  </button>
+                )}
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                {/* Original MRI Image */}
+                <div className="bg-zinc-800/30 rounded-xl p-4 border border-zinc-700/50">
+                  <h4 className="text-lg font-medium mb-3">
+                    Original MRI Scan
+                  </h4>
+                  <div className="h-64 overflow-hidden rounded-lg bg-black">
+                    <OriginalImage />
+                  </div>
+                </div>
+
+                {/* Tumor Detection Image */}
+                <div className="bg-zinc-800/30 rounded-xl p-4 border border-zinc-700/50">
+                  <h4 className="text-lg font-medium mb-3">
+                    {tumorDetections.length > 0
+                      ? "Tumor Detection"
+                      : "Analysis Result"}
+                  </h4>
+                  <div className="h-64 overflow-hidden rounded-lg bg-black">
+                    {tumorDetections.length > 0 ? (
+                      <BoundingBoxesOverlay />
+                    ) : (
+                      <OriginalImage />
+                    )}
+                  </div>
+
+                  <div className="mt-4">
+                    <h4 className="font-medium mb-2">Detection Summary:</h4>
+                    <div className="bg-zinc-800/70 p-3 rounded-lg">
+                      {tumorDetections.length > 0 ? (
+                        <>
+                          <p className="text-sm">
+                            <span className="font-medium">
+                              Total regions detected:
+                            </span>{" "}
+                            {tumorDetections.length}
+                          </p>
+                          <p className="text-sm">
+                            <span className="font-medium">
+                              Highest confidence:
+                            </span>{" "}
+                            {Math.round(
+                              Math.max(
+                                ...tumorDetections.map(
+                                  (d) => d.pixels.confidence
+                                )
+                              ) * 100
+                            )}
+                            %
+                          </p>
+                        </>
+                      ) : (
+                        <p className="text-sm">
+                          <span className="font-medium">Analysis result:</span>{" "}
+                          {diagnosisResult.includes("_NORMAL")
+                            ? "No abnormalities detected"
+                            : "Potential abnormalities detected"}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Detailed tumor detection information */}
+          {tumorDetections.length > 0 && (
+            <div className="mb-8 p-6 bg-zinc-800/30 rounded-xl border border-zinc-700/50">
+              <h3 className="text-xl font-semibold mb-4 flex items-center">
+                <Target size={20} className="mr-2 text-red-400" />
+                Tumor Analysis
+              </h3>
+
+              <div className="grid grid-cols-1 gap-6">
+                <div>
+                  <h4 className="font-medium mb-2">Detection Details:</h4>
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                    {tumorDetections.map((detection, index) => (
+                      <div
+                        key={index}
+                        className="bg-zinc-800/70 p-3 rounded-lg"
+                      >
+                        <div className="flex justify-between mb-1">
+                          <span className="font-medium">Tumor {index + 1}</span>
+                          <span className="text-red-400 font-medium">
+                            {Math.round(detection.pixels.confidence * 100)}%
+                            confidence
+                          </span>
+                        </div>
+                        <div className="grid grid-cols-2 gap-2 text-sm text-gray-400">
+                          <span>
+                            Size:{" "}
+                            {Math.round(
+                              (detection.pixels.x2 - detection.pixels.x1) *
+                                (detection.pixels.y2 - detection.pixels.y1)
+                            )}{" "}
+                            px²
+                          </span>
+                          <span>Position: center</span>
+                          <span>
+                            Width:{" "}
+                            {Math.round(
+                              detection.pixels.x2 - detection.pixels.x1
+                            )}{" "}
+                            px
+                          </span>
+                          <span>
+                            Height:{" "}
+                            {Math.round(
+                              detection.pixels.y2 - detection.pixels.y1
+                            )}{" "}
+                            px
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
 
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
             {/* Classification Details */}
@@ -376,6 +639,17 @@ const DiagnosisPage = () => {
                       getRiskLevel(diagnosisResult).slice(1)}
                   </p>
                 </div>
+
+                {tumorDetections.length > 0 && (
+                  <div>
+                    <p className="text-gray-400 text-sm mb-1">Detections</p>
+                    <p className="font-semibold">
+                      {tumorDetections.length} tumor{" "}
+                      {tumorDetections.length === 1 ? "region" : "regions"}{" "}
+                      detected
+                    </p>
+                  </div>
+                )}
               </div>
             </div>
 
@@ -387,8 +661,8 @@ const DiagnosisPage = () => {
               </h3>
 
               <div className="space-y-3">
-                {detailedResults.top_predictions &&
-                  detailedResults.top_predictions
+                {detailedResults.classification.top_predictions &&
+                  detailedResults.classification.top_predictions
                     .slice(1, 5)
                     .map((prediction, index) => (
                       <div
@@ -421,7 +695,7 @@ const DiagnosisPage = () => {
                 Recommended Actions
               </h3>
 
-              {diagnosisResult.includes("NORMAL") ? (
+              {diagnosisResult.includes("_NORMAL") ? (
                 <div className="flex flex-col items-center justify-center">
                   <CheckCircle size={48} className="text-green-500 mb-4" />
                   <p className="text-center">

@@ -20,6 +20,21 @@ import torchvision.models as models
 import torchvision.transforms as transforms
 from PIL import Image
 import numpy as np
+import torch
+from ultralytics import YOLO
+
+# Load YOLOv11 model
+yolo_model_path = "yolov11_finetuned.pt"
+
+try:
+    yolo_model = YOLO(yolo_model_path)  # Load YOLO model
+    yolo_model.to('cuda' if torch.cuda.is_available() else 'cpu')  # Move to GPU if available
+    print("YOLOv11 model loaded successfully!")
+except Exception as e:
+    yolo_model = None
+    print(f"Error loading YOLOv11 model: {e}")
+
+
 
 # Load API key from environment
 load_dotenv()
@@ -266,9 +281,12 @@ def predict(input_data: InputData):
 # New endpoint for brain tumor image classification
 @app.post("/classification")
 async def classify_image(file: UploadFile = File(...)):
-    # Check if model is loaded
+    # Check if models are loaded
     if classification_model is None:
         raise HTTPException(status_code=503, detail="Classification model is not available")
+    
+    if yolo_model is None:
+        raise HTTPException(status_code=503, detail="YOLOv11 model is not available")
     
     # Validate file
     if not file.content_type.startswith("image/"):
@@ -279,7 +297,11 @@ async def classify_image(file: UploadFile = File(...)):
         contents = await file.read()
         image = Image.open(io.BytesIO(contents)).convert("RGB")
         
-        # Apply transformations
+        # Get original image dimensions for scaling
+        original_width, original_height = image.size
+        image_dimensions = {"width": original_width, "height": original_height}
+
+        # Classification processing
         image_tensor = transform(image)
         image_tensor = image_tensor.unsqueeze(0)  # Add batch dimension
         
@@ -287,7 +309,7 @@ async def classify_image(file: UploadFile = File(...)):
         device = next(classification_model.parameters()).device
         image_tensor = image_tensor.to(device)
         
-        # Get prediction
+        # Get classification prediction
         with torch.no_grad():
             outputs = classification_model(image_tensor)
             probabilities = torch.exp(outputs)
@@ -312,16 +334,54 @@ async def classify_image(file: UploadFile = File(...)):
                 {"class_id": idx, "class_name": class_names[idx], "confidence": float(prob)}
                 for idx, prob in zip(top_5_indices, top_5_probs)
             ]
+
+        # YOLOv11 bounding box detection
+        np_image = np.array(image)
+        yolo_results = yolo_model(np_image, conf=0.3)
         
+        # Format the bounding box results
+        bounding_boxes = []
+        if hasattr(yolo_results, 'xyxy') and len(yolo_results.xyxy) > 0:
+            for detection in yolo_results.xyxy[0].cpu().numpy():
+                x1, y1, x2, y2, confidence, class_id = detection
+                bounding_boxes.append({
+                    "normalized": {
+                        "x1": float(x1) / original_width,
+                        "y1": float(y1) / original_height,
+                        "x2": float(x2) / original_width,
+                        "y2": float(y2) / original_height,
+                        "confidence": float(confidence),
+                        "class_id": int(class_id)
+                    },
+                    "pixels": {
+                        "x1": int(x1),
+                        "y1": int(y1),
+                        "x2": int(x2),
+                        "y2": int(y2),
+                        "confidence": float(confidence),
+                        "class_id": int(class_id)
+                    }
+                })
+
+        # Format the response to match the frontend expectations
+        print(image_dimensions)
         return {
-            "class_id": top_class_id,
-            "class_name": top_class_name,
-            "confidence": top_prob_value,
-            "top_predictions": top_5_results
+            "classification": {
+                "class_id": top_class_id,
+                "class_name": top_class_name,
+                "confidence": top_prob_value,
+                "top_predictions": top_5_results
+            },
+            "tumor_detection": {
+                "bounding_boxes": bounding_boxes
+            },
+            "image_dimensions": image_dimensions
         }
+    
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+
 
 @app.get("/health")
 def health_check():
