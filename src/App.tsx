@@ -1,15 +1,15 @@
 // App.tsx
-import { useState } from 'react';
-import { Menu, X } from 'lucide-react';
-import Sidebar from './components/Sidebar';
-import HomePage from './components/HomePage';
-import DiagnosisPage from './components/DiagnosisPage';
-import ChatbotPage from './components/ChatbotPage';
-import SurvivalTime from './components/SurvivalTime'; // Import the new page
+import { useState } from "react";
+import { Menu, X } from "lucide-react";
+import Sidebar from "./components/Sidebar";
+import HomePage from "./components/HomePage";
+import DiagnosisPage from "./components/DiagnosisPage";
+import ChatbotPage from "./components/ChatbotPage";
+import SurvivalTime from "./components/SurvivalTime"; // Import the new page
 
 function App() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [activeTab, setActiveTab] = useState('home');
+  const [activeTab, setActiveTab] = useState("home");
 
   const toggleSidebar = () => {
     setSidebarOpen(!sidebarOpen);
@@ -17,13 +17,13 @@ function App() {
 
   const renderContent = () => {
     switch (activeTab) {
-      case 'home':
+      case "home":
         return <HomePage />;
-      case 'diagnosis':
+      case "diagnosis":
         return <DiagnosisPage />;
-      case 'survival':
+      case "survival":
         return <SurvivalTime />; // New page
-      case 'chat':
+      case "chat":
         return <ChatbotPage />;
       // You can add other cases here as needed.
       default:
@@ -34,7 +34,7 @@ function App() {
   return (
     <div className="flex h-screen bg-black text-white overflow-hidden">
       {/* Mobile menu button */}
-      <button 
+      <button
         className="lg:hidden fixed top-4 left-4 z-50 p-2 rounded-full bg-gray-800 text-white"
         onClick={toggleSidebar}
       >
@@ -42,17 +42,15 @@ function App() {
       </button>
 
       {/* Floating Sidebar */}
-      <Sidebar 
-        isOpen={sidebarOpen} 
+      <Sidebar
+        isOpen={sidebarOpen}
         activeTab={activeTab}
         setActiveTab={setActiveTab}
         toggleSidebar={toggleSidebar}
       />
 
       {/* Main Content */}
-      <main className="flex-1 overflow-y-auto bg-black">
-        {renderContent()}
-      </main>
+      <main className="flex-1 overflow-y-auto bg-black">{renderContent()}</main>
     </div>
   );
 }
